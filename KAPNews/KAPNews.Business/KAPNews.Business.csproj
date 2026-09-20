@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 🌟 DÜZELTME: 10.0.9 sürümü .NET 10 hedefler; bu proje net8.0 olduğu için
+         paket sürüm uyuşmazlığı derleme hatasına yol açıyordu. .NET 8 ile uyumlu
+         8.x serisine sabitlendi. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <!-- 🌟 DÜZELTME: OtoAnalizServisi.cs dosyasında "IMemoryCache" kullanılıyordu
+         ama bu paket projeye hiç eklenmemişti. Bu yüzden proje derlenmiyor,
+         dolayısıyla backend hiç ayağa kalkmıyordu. Eksik olan paketi ekliyoruz. -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
+    <PackageReference Include="Mscc.GenerativeAI" Version="3.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Entities\KAPNews.Entities.csproj" />
+    <ProjectReference Include="..\KAPNews.DataAccess\KAPNews.DataAccess.csproj" />
+  </ItemGroup>
+
+</Project>

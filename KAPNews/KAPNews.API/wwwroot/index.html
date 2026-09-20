@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="tr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KAP Haberleri Analiz Paneli</title>
+
+    <!-- Tailwind CSS & FontAwesome — SPK Bülten Analiz Paneli ile aynı görsel dil -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        // KAP'ın kurumsal kimliğine uygun lacivert — SPK panelindeki
+                        // 'brand' değişkeninin (#005696) KAP'a özgü karşılığı.
+                        brand: '#1B3B6F',
+                        'brand-hover': '#132a4f',
+                        accent: '#F2994A'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .dark .dashboard-card {
+            background-color: #131d31;
+            border-color: rgba(27, 59, 111, 0.35);
+        }
+
+        .dashboard-card {
+            background-color: #ffffff;
+            border: 1px solid rgba(27, 59, 111, 0.18);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .dark .dashboard-card:hover {
+            border-color: #F2994A;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+        }
+
+        .dashboard-card:hover {
+            border-color: #F2994A;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(27,59,111,0.12);
+        }
+
+        .dark .glass-modal {
+            background-color: #0f172a;
+            border-color: rgba(27, 59, 111, 0.5);
+        }
+
+        .glass-modal {
+            background-color: #ffffff;
+            border: 2px solid rgba(27, 59, 111, 0.35);
+        }
+
+        .badge-positive {
+            background-color: rgba(16,185,129,0.12);
+            border: 1px solid rgba(16,185,129,0.3);
+            color: #059669;
+        }
+
+        .dark .badge-positive {
+            color: #10b981;
+        }
+
+        .badge-negative {
+            background-color: rgba(244,63,94,0.12);
+            border: 1px solid rgba(244,63,94,0.3);
+            color: #e11d48;
+        }
+
+        .dark .badge-negative {
+            color: #f43f5e;
+        }
+
+        .badge-neutral {
+            background-color: rgba(245,158,11,0.12);
+            border: 1px solid rgba(245,158,11,0.3);
+            color: #d97706;
+        }
+
+        .dark .badge-neutral {
+            color: #f59e0b;
+        }
+
+        #haberListesi {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(148,163,184,0.4) transparent;
+        }
+
+            #haberListesi::-webkit-scrollbar {
+                width: 5px;
+            }
+
+            #haberListesi::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            #haberListesi::-webkit-scrollbar-thumb {
+                background-color: rgba(148,163,184,0.3);
+                border-radius: 10px;
+            }
+
+                #haberListesi::-webkit-scrollbar-thumb:hover {
+                    background-color: rgba(242,153,74,0.6);
+                }
+
+        .js-gizli {
+            display: none !important;
+        }
+
+        .rotate-180 {
+            transform: rotate(180deg);
+        }
+
+        .-rotate-90 {
+            transform: rotate(-90deg);
+        }
+
+        /* Filtre modalındaki "Yön Filtresi" rozetleri: checkbox işaretli değilken
+        soluklaştırılır, işaretliyken tam renkli/vurgulu görünür. */
+        .yon-filtre-etiket {
+            opacity: 0.4;
+            filter: grayscale(60%);
+        }
+
+            .yon-filtre-etiket:has(.yon-filtre-checkbox:checked) {
+                opacity: 1;
+                filter: none;
+            }
+
+        /* Sayfa boyutu (25/50/100) modal butonları — aktif olan vurgulanır. */
+        .sayfa-boyutu-modal-btn {
+            border-color: rgb(203 213 225);
+            color: rgb(71 85 105);
+        }
+
+        .dark .sayfa-boyutu-modal-btn {
+            border-color: rgb(51 65 85);
+            color: rgb(203 213 225);
+        }
+
+        .sayfa-boyutu-modal-btn.aktif {
+            background-color: #1B3B6F;
+            border-color: #1B3B6F;
+            color: white;
+        }
+
+        .detay-govde {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.35s ease;
+        }
+
+            .detay-govde.acik {
+                max-height: 2500px;
+            }
+
+        /* Kart kapalıyken gösterilen AI özet metnini 2 satırla sınırlar —
+        Tailwind'in çekirdek sürümünde line-clamp eklentisi olmadığı için
+        manuel CSS ile tanımlanıyor. */
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        @keyframes spin-slow {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .animate-spin-slow {
+            animation: spin-slow 1s linear infinite;
+        }
+
+        /* ===== MOBİL RESPONSIVE EKLERİ ===== */
+        @media (max-width: 639px) {
+            /* Sayfalama butonları overflow */
+            #sayfalamaKonteyneri {
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+
+                #sayfalamaKonteyneri::-webkit-scrollbar {
+                    display: none;
+                }
+
+            /* Kart başlığı taşma engeli */
+            .dashboard-card p.font-bold {
+                word-break: break-word;
+            }
+
+            /* AI yorum özeti mobilde 3 satıra kadar */
+            .line-clamp-2 {
+                -webkit-line-clamp: 3;
+            }
+
+            /* Filtre modal tam ekran */
+            #modalFiltre > div {
+                max-width: 100%;
+                margin: 0;
+                border-radius: 1rem 1rem 0 0;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                max-height: 92vh;
+            }
+
+            #modalFiltre {
+                align-items: flex-end;
+                padding: 0;
+            }
+
+            /* Modal genel tam ekran */
+            #modalHisseGrafik > div,
+            #modalGrafik > div,
+            #modalSirketGecmisi > div {
+                max-width: 100%;
+                margin: 0 8px;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800 dark:bg-[#0b1120] dark:text-slate-100 flex flex-col justify-between">
+
+    <!-- ================= HEADER (SPK panelindeki iki katmanlı header yapısı) ================= -->
+    <header class="sticky top-0 z-40 w-full bg-brand dark:bg-[#11192c] border-b border-brand/20 dark:border-slate-800/80 text-white shadow-md dark:shadow-xl transition-colors duration-300">
+        <div class="max-w-7xl mx-auto px-2 sm:px-4 md:px-8 py-2 sm:py-3 flex flex-col gap-2">
+
+            <!-- ÜST SATIR: LOGO, BAŞLIK & AKSİYON BUTONLARI -->
+            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 dark:border-slate-800/80 pb-2.5">
+
+                <!-- Sol: Logo & Panel Başlığı -->
+                <div class="flex items-center gap-4 md:gap-6">
+                    <div class="shrink-0 w-11 h-11 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white font-black text-lg">K</div>
+                    <div>
+                        <h1 class="text-base md:text-xl font-black text-white tracking-wide leading-tight">KAP Haberleri Analiz Paneli</h1>
+                        <p class="hidden sm:block text-sm md:text-base text-slate-100 dark:text-slate-300 font-semibold mt-0.5 tracking-tight opacity-95">
+                            Kamuyu Aydınlatma Platformu &middot; Yapay Zeka Destekli Piyasa Etki Analizi
+                        </p>
+                    </div>
+                </div>
+
+                <!-- SAĞ AKSİYON BUTONLARI ALANI -->
+                <div class="flex items-center gap-2">
+
+                    <!-- AKSİYONLAR TOGGLE BUTONU -->
+                    <button onclick="toggleAksiyonlar()"
+                            class="font-bold text-slate-100 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl border border-white/20 transition cursor-pointer flex items-center gap-2 select-none shadow-sm whitespace-nowrap">
+                        <i class="fa-solid fa-sliders text-accent text-xs"></i>
+                        <span class="uppercase tracking-wider text-[11px]">Aksiyonlar</span>
+                        <i id="aksiyonlarChevron" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-300 -rotate-90"></i>
+                    </button>
+
+                    <!-- HER ZAMAN GÖRÜNEN SABİT ÜST BUTONLAR -->
+                    <div class="flex items-center gap-2">
+                        <!-- Tema Değiştirme -->
+                        <button onclick="temaDegistir()" id="btnTema" title="Açık / Koyu Tema"
+                                class="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-accent border border-white/20 transition cursor-pointer">
+                            <i class="fa-solid fa-moon text-sm"></i>
+                        </button>
+
+                        <!-- GİRİŞ YAP BUTONU -->
+                        <button id="btnAdmin" onclick="adminGirisPencerisiniAc()" title="Admin Girişi"
+                                class="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 transition cursor-pointer">
+                            <i class="fa-solid fa-right-to-bracket text-sm"></i>
+                        </button>
+
+                        <!-- ÇIKIŞ YAP BUTONU (varsayılan gizli) -->
+                        <button id="btnAdminPanel" onclick="adminPanelAc()" title="Admin Paneli"
+                                class="js-gizli p-2 rounded-xl bg-white/10 hover:bg-brand/40 text-white border border-white/20 transition cursor-pointer">
+                            <i class="fa-solid fa-shield-halved"></i>
+                        </button>
+                        <button id="btnCikis" onclick="cikisYap()" title="Çıkış Yap"
+                                class="js-gizli p-2 rounded-xl bg-white/10 hover:bg-rose-500/30 text-white border border-white/20 transition cursor-pointer">
+                            <i class="fa-solid fa-right-from-bracket text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- AKSİYONLARA BASINCA AÇILAN ALAN: TARA / GRAFİK / EXCEL / TEMİZLE & KULLANICI ROZETİ -->
+                <div id="aksiyonlarContent" class="hidden w-full items-center gap-2 flex-wrap transition-all">
+
+                    <button id="btnYeniHaberleriTara" onclick="yeniHaberleriTara()" title="KAP'tan yeni bildirimleri tara"
+                            class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1.5 transition cursor-pointer shadow-sm whitespace-nowrap">
+                        <i id="iconTara" class="fa-solid fa-satellite-dish text-xs"></i>
+                        <span class="hidden sm:inline">Yeni Haberleri Tara</span>
+                    </button>
+
+                    <button onclick="grafikModalAc()" title="Genel dağılım grafiği"
+                            class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/25 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap">
+                        <i class="fa-solid fa-chart-pie text-xs"></i>
+                        <span class="hidden sm:inline">Grafik</span>
+                    </button>
+
+                    <button onclick="exceleAktar()" title="Görüntülenen listeyi Excel'e aktar"
+                            class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-100 border border-emerald-400/30 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap">
+                        <i class="fa-solid fa-file-excel text-xs"></i>
+                        <span class="hidden sm:inline">Excel</span>
+                    </button>
+
+                    <button onclick="filtreleriTemizle()" title="Filtreleri sıfırla"
+                            class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/25 flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap">
+                        <i class="fa-solid fa-filter-circle-xmark text-xs"></i>
+                        <span class="hidden sm:inline">Temizle</span>
+                    </button>
+
+                    <!-- KULLANICI ROZETİ (admin girişi sonrası görünür) -->
+                    <span id="rozetKullanici" class="js-gizli ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-100 text-xs font-bold whitespace-nowrap">
+                        <i class="fa-solid fa-user-shield"></i> Admin
+                    </span>
+                </div>
+            </div>
+
+            <!-- ALT SATIR: TIKLANABİLİR GENEL ÖZET & SIRALAMA/AÇMA AKSİYONLARI
+            (SPK panelindeki gibi: "Genel Özet" butonuna basınca KPI'lar yana
+            doğru açılır; KPI'lar artık admin'e özel değil, herkese açık.) -->
+            <div class="flex flex-wrap items-center justify-between gap-3 text-xs">
+
+                <div class="flex items-center gap-3 flex-wrap">
+                    <!-- TIKLANABİLİR GENEL ÖZET BUTONU -->
+                    <button onclick="toggleGenelOzet()" id="btnGenelOzet"
+                            class="font-bold text-slate-100 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-xl border border-white/20 transition cursor-pointer flex items-center gap-2 select-none shadow-sm whitespace-nowrap">
+                        <i class="fa-solid fa-chart-simple text-accent text-xs"></i>
+                        <span class="uppercase tracking-wider text-[11px]">Genel Özet</span>
+                        <i id="genelOzetChevron" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-300 -rotate-90"></i>
+                    </button>
+
+                    <!-- GİZLENEBİLİR ÖZET METRİKLERİ ALANI: herkese açık (giriş
+                    yapmadan da görülebilir), "Genel Özet" butonuyla yana doğru açılır.
+                    Her kutucuk TIKLANABİLİR: ilgili yön filtresini uygulayıp listeyi
+                    o kategoriye daraltır (Toplam = filtreleri sıfırlar). -->
+                    <div id="genelOzetContent" class="hidden items-center gap-2.5 flex-wrap transition-all">
+                        <button onclick="kpiFiltreUygula('toplam')" id="kpiKutuToplam"
+                                class="kpi-kutu flex items-center gap-1.5 bg-white/10 dark:bg-slate-800/60 hover:bg-white/20 px-2.5 py-1 rounded-lg border border-white/15 dark:border-slate-800 transition cursor-pointer">
+                            <i class="fa-solid fa-newspaper text-slate-200 text-[11px]"></i>
+                            <span class="text-slate-200 dark:text-slate-400">Toplam:</span>
+                            <span id="kpiToplamHaber" class="font-black text-white">0</span>
+                        </button>
+                        <button onclick="kpiFiltreUygula('Olumlu')" id="kpiKutuOlumlu"
+                                class="kpi-kutu flex items-center gap-1.5 bg-white/10 dark:bg-slate-800/60 hover:bg-white/20 px-2.5 py-1 rounded-lg border border-white/15 dark:border-slate-800 transition cursor-pointer">
+                            <i class="fa-solid fa-arrow-trend-up text-emerald-300 text-[11px]"></i>
+                            <span class="text-slate-200 dark:text-slate-400">Olumlu:</span>
+                            <span id="kpiOlumluHaber" class="font-black text-emerald-300">0</span>
+                        </button>
+                        <button onclick="kpiFiltreUygula('Notr')" id="kpiKutuNotr"
+                                class="kpi-kutu flex items-center gap-1.5 bg-white/10 dark:bg-slate-800/60 hover:bg-white/20 px-2.5 py-1 rounded-lg border border-white/15 dark:border-slate-800 transition cursor-pointer">
+                            <i class="fa-solid fa-minus text-amber-300 text-[11px]"></i>
+                            <span class="text-slate-200 dark:text-slate-400">Nötr:</span>
+                            <span id="kpiNotrHaber" class="font-black text-amber-300">0</span>
+                        </button>
+                        <button onclick="kpiFiltreUygula('Olumsuz')" id="kpiKutuOlumsuz"
+                                class="kpi-kutu flex items-center gap-1.5 bg-white/10 dark:bg-slate-800/60 hover:bg-white/20 px-2.5 py-1 rounded-lg border border-white/15 dark:border-slate-800 transition cursor-pointer">
+                            <i class="fa-solid fa-arrow-trend-down text-rose-300 text-[11px]"></i>
+                            <span class="text-slate-200 dark:text-slate-400">Olumsuz:</span>
+                            <span id="kpiOlumsuzHaber" class="font-black text-rose-300">0</span>
+                        </button>
+                        <div class="flex items-center gap-1.5 bg-white/10 dark:bg-slate-800/60 px-2.5 py-1 rounded-lg border border-white/15 dark:border-slate-800"
+                             title="Piyasa Skoru günlük olarak, o güne ait KAP bildirimleri kapandıktan sonra (gece 00:00'da) hesaplanır.">
+                            <i class="fa-solid fa-gauge-high text-accent text-[11px]"></i>
+                            <span class="text-slate-200 dark:text-slate-400">Piyasa Skoru:</span>
+                            <span id="kpiPiyasaSkoru" class="font-black text-accent">%0</span>
+                            <span id="kpiPiyasaSkoruTarih" class="text-slate-400 text-[10px]"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 ml-auto flex-wrap">
+                    <span class="text-slate-300"><span id="haberSayisi">0</span> bildirim listeleniyor</span>
+                    <span class="text-slate-500">&middot;</span>
+
+                    <!-- TÜMÜNÜ AÇ/KAPAT -->
+                    <button id="btnTumunuAcKapat" onclick="tumunuAcKapat()"
+                            class="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-2.5 py-1 text-xs text-white transition">
+                        <i id="tumunuAcKapatIkon" class="fa-solid fa-chevron-down text-[10px] transition-transform duration-300"></i>
+                        <span id="tumunuAcKapatMetin">Tümünü Aç</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- FİLTRE SATIRI: SPK Bülten panelindeki gibi tek bir "Filtrele"
+            butonuna basınca DETAYLI bir pop-up (modal) açılır; arama kutusu
+            her zaman görünür kalır (en sık kullanılan). -->
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="relative flex-1 min-w-0">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 text-sm"></i>
+                    <input id="txtFiltre" oninput="mevcutSayfa=1;ekranaHaberleriBas()" type="text" placeholder="Şirket, hisse kodu veya başlıkta ara..."
+                           class="w-full pl-9 pr-3 py-2 rounded-lg border border-white/20 bg-white/10 placeholder-slate-300 text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+                </div>
+                <button onclick="filtrePaneliAc()" id="btnFiltrePaneli"
+                        class="shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition">
+                    <i class="fa-solid fa-filter text-accent text-xs"></i>
+                    <span>Filtrele</span>
+                    <span id="filtreAktifRozeti" class="js-gizli w-2 h-2 rounded-full bg-accent"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================= FİLTRE MODALI (SPK Bülten panelindeki gibi detaylı pop-up) =================
+    "Filtrele" butonuna basınca ekranın ortasında açılır: kelime arama, tarih
+    aralığı + sıralama, yön (duygu durumu) çoklu seçim, etki skoru aralığı
+    (slider) ve sektör checkbox grid'i içerir. Değişiklikler yalnızca "Uygula"
+    butonuna basılınca listeye yansır — SPK panelindeki akışla aynı. -->
+    <div id="modalFiltre" class="js-gizli fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/60 p-3 overflow-y-auto">
+        <div class="glass-modal rounded-2xl w-full max-w-xl my-6 flex flex-col max-h-[90vh]">
+
+            <!-- Modal başlığı -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800">
+                <h3 class="font-bold text-base flex items-center gap-2">
+                    <i class="fa-solid fa-filter text-brand dark:text-blue-400"></i>Kelime / Şirket Araması
+                </h3>
+                <button onclick="filtrePaneliKapat()" class="text-slate-400 hover:text-rose-500"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="overflow-y-auto px-5 py-4 space-y-5">
+
+                <!-- ARAMA KUTUSU -->
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input id="txtFiltreModal" type="text" placeholder="Şirket adı, hisse kodu veya bildirim başlığında ara..."
+                           class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+                </div>
+
+                <!-- YAYIN TARİHİ ARALIĞI + SIRALAMA -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
+                            <i class="fa-regular fa-calendar"></i>Yayın Tarihi Aralığı
+                        </label>
+                        <div class="flex items-center gap-1.5">
+                            <input id="tarihBaslangicModal" type="date" class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs" />
+                            <span class="text-slate-400 text-xs shrink-0">–</span>
+                            <input id="tarihBitisModal" type="date" class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
+                            <i class="fa-solid fa-arrow-down-wide-short"></i>Sonuçları Sırala
+                        </label>
+                        <select id="siralamaSecimiModal" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs">
+                            <option value="tarih-azalan">Yayın Tarihi (Yeni &rarr; Eski)</option>
+                            <option value="tarih-artan">Yayın Tarihi (Eski &rarr; Yeni)</option>
+                            <option value="etki-azalan">Etki Skoru (Yüksek &rarr; Düşük)</option>
+                            <option value="etki-artan">Etki Skoru (Düşük &rarr; Yüksek)</option>
+                            <option value="vade-azalan">Vade (Uzun &rarr; Kısa)</option>
+                            <option value="vade-artan">Vade (Kısa &rarr; Uzun)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- GÖSTERİLECEK KAYIT SAYISI -->
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1.5">
+                        <i class="fa-solid fa-list-ol"></i>Sayfa Başına Gösterilecek Bildirim
+                    </label>
+                    <div class="flex items-center gap-2">
+                        <button id="modalSayfa25" onclick="modalSayfaBoyutuSec(25)" class="sayfa-boyutu-modal-btn flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition">25</button>
+                        <button id="modalSayfa50" onclick="modalSayfaBoyutuSec(50)" class="sayfa-boyutu-modal-btn flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition">50</button>
+                        <button id="modalSayfa100" onclick="modalSayfaBoyutuSec(100)" class="sayfa-boyutu-modal-btn flex-1 px-3 py-1.5 rounded-lg border text-xs font-semibold transition">100</button>
+                    </div>
+                </div>
+
+                <!-- YÖN FİLTRESİ (Duygu Durumu) — çoklu seçim rozet stilinde -->
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-arrows-up-down"></i>Yön Filtresi
+                    </label>
+                    <div id="yonFiltreGrubu" class="flex flex-wrap gap-2">
+                        <label class="yon-filtre-etiket flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs font-semibold transition badge-positive">
+                            <input type="checkbox" value="Olumlu" class="yon-filtre-checkbox accent-emerald-500" checked>Olumlu / Yüksek Olumlu
+                        </label>
+                        <label class="yon-filtre-etiket flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs font-semibold transition badge-neutral">
+                            <input type="checkbox" value="Notr" class="yon-filtre-checkbox accent-amber-500" checked>Nötr
+                        </label>
+                        <label class="yon-filtre-etiket flex items-center gap-1.5 px-3 py-1.5 rounded-lg border cursor-pointer text-xs font-semibold transition badge-negative">
+                            <input type="checkbox" value="Olumsuz" class="yon-filtre-checkbox accent-rose-500" checked>Olumsuz / Yüksek Olumsuz
+                        </label>
+                    </div>
+                </div>
+
+                <!-- ETKİ SKORU ARALIĞI (slider) -->
+                <div>
+                    <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-gauge-high"></i>Minimum Etki Skoru: <span id="etkiSkoruDeger" class="text-brand dark:text-accent font-black">%0</span>
+                    </label>
+                    <input id="etkiSkoruSlider" type="range" min="0" max="100" value="0" step="5"
+                           oninput="etkiSkoruSliderGuncelle(this.value)"
+                           class="w-full h-2 rounded-lg appearance-none cursor-pointer accent-brand dark:accent-accent bg-slate-200 dark:bg-slate-700" />
+                    <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                        <span>Tümü</span>
+                        <span>Yalnızca yüksek etkili haberler</span>
+                    </div>
+                </div>
+
+                <!-- SEKTÖRLER — checkbox grid, backend'den dinamik dolduruluyor -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                            <i class="fa-solid fa-industry"></i>Sektörler
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <button onclick="sektorHepsiniSec(true)" class="text-[11px] text-brand dark:text-accent hover:underline font-semibold">Tümünü Seç</button>
+                            <span class="text-slate-300 dark:text-slate-600">|</span>
+                            <button onclick="sektorHepsiniSec(false)" class="text-[11px] text-brand dark:text-accent hover:underline font-semibold">Temizle</button>
+                        </div>
+                    </div>
+                    <div id="sektorFiltreGrubu" class="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-2 max-h-40 overflow-y-auto pr-1">
+                        <!-- JS ile doldurulur -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ALT BAR: Temizle / Uygula -->
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-t border-slate-200 dark:border-slate-800">
+                <button onclick="filtreleriTemizle()" class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-slate-500 hover:text-rose-500 text-xs font-semibold transition">
+                    <i class="fa-solid fa-trash-can"></i>Temizle
+                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="filtrePaneliKapat()" class="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition">Vazgeç</button>
+                    <button onclick="filtreleriUygula()" class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-bold transition">
+                        <i class="fa-solid fa-check"></i>Uygula
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= ANA İÇERİK ================= -->
+    <main class="max-w-7xl mx-auto w-full px-2 sm:px-4 py-4 sm:py-6 flex-1">
+        <div id="haberListesi" class="space-y-3"></div>
+
+        <div id="sayfalamaKonteyneri" class="flex items-center justify-start gap-1 mt-6 overflow-x-auto pb-2 px-1" style="scrollbar-width:none;-ms-overflow-style:none;"></div>
+    </main>
+
+    <!-- TEMA UYUMLU TAM ORTALANMIŞ FOOTER -->
+    <footer class="w-full bg-brand dark:bg-[#11192c] border-t border-brand/20 dark:border-slate-800 py-3 transition-colors duration-300">
+        <div class="max-w-7xl mx-auto px-4 md:px-8 flex justify-center items-center">
+            <p class="text-xs md:text-sm text-white dark:text-slate-400 font-medium tracking-wide text-center">
+                KAP Haberleri Analiz Paneli &middot; Gemini API ile desteklenmektedir &middot; Veriler
+                <a href="https://www.kap.org.tr" target="_blank" rel="noopener" class="underline hover:text-accent">kap.org.tr</a>
+                üzerinden alınmaktadır.
+            </p>
+        </div>
+    </footer>
+
+
+    <!-- ================= YENİ ADMIN PANELİ MODALI ================= -->
+    <div id="modalAdminPanel" class="js-gizli fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4 overflow-y-auto">
+        <div class="glass-modal rounded-2xl w-full max-w-3xl my-4 flex flex-col max-h-[95vh]">
+
+            <!-- Başlık -->
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                <h3 class="font-black text-base flex items-center gap-2">
+                    <i class="fa-solid fa-shield-halved text-brand dark:text-blue-400"></i>
+                    Admin Kontrol Paneli
+                </h3>
+                <button onclick="modalKapat('modalAdminPanel')" class="text-slate-400 hover:text-rose-500 transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Sekmeler -->
+            <div class="flex gap-1 px-4 pt-3 border-b border-slate-200 dark:border-slate-800 overflow-x-auto shrink-0">
+                <button onclick="adminSekmeAc('genel')" id="sekme-genel"
+                        class="admin-sekme-btn px-3 py-2 text-xs font-bold rounded-t-lg border-b-2 border-brand text-brand dark:text-blue-400 whitespace-nowrap">
+                    <i class="fa-solid fa-gauge-high mr-1"></i>Genel Durum
+                </button>
+                <button onclick="adminSekmeAc('gorunum')" id="sekme-gorunum"
+                        class="admin-sekme-btn px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 whitespace-nowrap">
+                    <i class="fa-solid fa-eye mr-1"></i>Görünüm Ayarları
+                </button>
+                <button onclick="adminSekmeAc('islemler')" id="sekme-islemler"
+                        class="admin-sekme-btn px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 whitespace-nowrap">
+                    <i class="fa-solid fa-gears mr-1"></i>İşlemler
+                </button>
+                <button onclick="adminSekmeAc('loglar')" id="sekme-loglar"
+                        class="admin-sekme-btn px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 whitespace-nowrap">
+                    <i class="fa-solid fa-terminal mr-1"></i>Son Loglar
+                </button>
+            </div>
+
+            <!-- İçerik -->
+            <div class="overflow-y-auto flex-1 px-5 py-4">
+
+                <!-- SEKME: Genel Durum -->
+                <div id="panel-genel" class="admin-panel-icerik space-y-4">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="adminKpiGrid">
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3 text-center">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Toplam Haber</p>
+                            <p id="apToplamHaber" class="text-2xl font-black text-brand dark:text-blue-400">—</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3 text-center">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Analiz Edildi</p>
+                            <p id="apAnalizEdilen" class="text-2xl font-black text-emerald-500">—</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3 text-center">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Bekleyen</p>
+                            <p id="apBekleyen" class="text-2xl font-black text-amber-500">—</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-3 text-center">
+                            <p class="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Hatalı</p>
+                            <p id="apHatali" class="text-2xl font-black text-rose-500">—</p>
+                        </div>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2">
+                        <p class="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3 flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-info"></i>Sistem Bilgisi
+                        </p>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-500">Gemini İstek Sayısı (tahmini)</span>
+                            <span id="apGeminiIstek" class="font-bold">—</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-500">Tasarruf Edilen İstek</span>
+                            <span id="apTasarruf" class="font-bold text-emerald-500">—</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-slate-500">Oturum Durumu</span>
+                            <span class="font-bold text-emerald-500"><i class="fa-solid fa-circle text-[8px] mr-1"></i>Aktif Admin</span>
+                        </div>
+                    </div>
+                    <button onclick="adminMetrikleriYukle()" class="w-full py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-rotate-right"></i>Metrikleri Yenile
+                    </button>
+                </div>
+
+                <!-- SEKME: Görünüm Ayarları -->
+                <div id="panel-gorunum" class="admin-panel-icerik js-gizli space-y-5">
+
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
+                        <p class="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                            <i class="fa-solid fa-robot"></i>Yapay Zeka Değerlendirmesi
+                        </p>
+
+                        <div class="space-y-2">
+                            <label class="flex items-center gap-3 cursor-pointer group">
+                                <input type="radio" name="aiGorunum" value="kapali_acik" class="accent-brand" onchange="aiGorunumDegistir(this.value)">
+                                <div>
+                                    <p class="text-sm font-semibold">Kapalı kartta kısa özet, açık kartta tam yorum</p>
+                                    <p class="text-xs text-slate-500">Varsayılan görünüm — kart kapalıyken 2-3 satır, açıkken tam metin</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-3 cursor-pointer group">
+                                <input type="radio" name="aiGorunum" value="sadece_acik" class="accent-brand" onchange="aiGorunumDegistir(this.value)">
+                                <div>
+                                    <p class="text-sm font-semibold">Yalnızca kart açıkken göster</p>
+                                    <p class="text-xs text-slate-500">Kapalı kartta hiç görünmez, açıldığında tam yorum çıkar</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-3 cursor-pointer group">
+                                <input type="radio" name="aiGorunum" value="her_zaman_tam" class="accent-brand" onchange="aiGorunumDegistir(this.value)">
+                                <div>
+                                    <p class="text-sm font-semibold">Her zaman tam göster (kart kapalıyken de)</p>
+                                    <p class="text-xs text-slate-500">Kart kapalıyken de tam AI yorumu görünür, liste uzar</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-3 cursor-pointer group">
+                                <input type="radio" name="aiGorunum" value="gizle" class="accent-brand" onchange="aiGorunumDegistir(this.value)">
+                                <div>
+                                    <p class="text-sm font-semibold">Tamamen gizle</p>
+                                    <p class="text-xs text-slate-500">AI yorumu hiçbir yerde gösterilmez</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+                        <p class="text-xs font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                            <i class="fa-solid fa-table-columns"></i>Kart Görünümü
+                        </p>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-semibold">Etki Skoru göster</p>
+                                <p class="text-xs text-slate-500">Kartın sağındaki % skoru kutusu</p>
+                            </div>
+                            <button onclick="toggleKartAyar('skorGoster')" id="toggleSkorGoster"
+                                    class="relative w-11 h-6 rounded-full bg-brand transition-colors">
+                                <span class="absolute right-1 top-1 w-4 h-4 rounded-full bg-white shadow transition-transform"></span>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm font-semibold">Sektör bilgisi göster</p>
+                                <p class="text-xs text-slate-500">Kapalı kartta şirket adının yanında sektör</p>
+                            </div>
+                            <button onclick="toggleKartAyar('sektorGoster')" id="toggleSektorGoster"
+                                    class="relative w-11 h-6 rounded-full bg-brand transition-colors">
+                                <span class="absolute right-1 top-1 w-4 h-4 rounded-full bg-white shadow transition-transform"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SEKME: İşlemler -->
+                <div id="panel-islemler" class="admin-panel-icerik js-gizli space-y-3">
+
+                    <div class="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10 p-3 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                        <i class="fa-solid fa-triangle-exclamation shrink-0 mt-0.5"></i>
+                        <span>Bu işlemler veritabanını ve API kullanımını etkiler. Dikkatli kullanın.</span>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div>
+                                <p class="text-sm font-semibold">KAP'tan Yeni Haberleri Tara</p>
+                                <p class="text-xs text-slate-500">Son 48 saatteki bildirimleri çeker</p>
+                            </div>
+                            <button onclick="adminYeniHaberleriTara()" id="apBtnTara"
+                                    class="shrink-0 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-satellite-dish"></i>Tara
+                            </button>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div>
+                                <p class="text-sm font-semibold">Bekleyen Haberleri AI ile Analiz Et</p>
+                                <p class="text-xs text-slate-500">Yorum bekleyen tüm haberleri Gemini'ye gönderir</p>
+                            </div>
+                            <button onclick="adminAiAnalizTetikle()" id="apBtnAiAnaliz"
+                                    class="shrink-0 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>Analiz Et
+                            </button>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div>
+                                <p class="text-sm font-semibold">Tara + Analiz Et (Tek Tıkla)</p>
+                                <p class="text-xs text-slate-500">Yeni haberleri çekip hemen AI analizine sokur</p>
+                            </div>
+                            <button onclick="adminTaraVeAnalizEt()" id="apBtnTaraAnaliz"
+                                    class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-bolt"></i>Çalıştır
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- İşlem log çıktısı -->
+                    <div id="apIslemLog" class="js-gizli rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-3 font-mono text-xs text-emerald-400 max-h-40 overflow-y-auto space-y-1">
+                    </div>
+                </div>
+
+                <!-- SEKME: Loglar -->
+                <div id="panel-loglar" class="admin-panel-icerik js-gizli">
+                    <div id="apLogListesi" class="space-y-1 font-mono text-xs">
+                        <p class="text-slate-400 text-center py-8">Loglar yükleniyor...</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="px-5 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+                <button onclick="cikisYap()" class="flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-400 font-semibold transition">
+                    <i class="fa-solid fa-right-from-bracket"></i>Çıkış Yap
+                </button>
+                <button onclick="modalKapat('modalAdminPanel')" class="px-4 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                    Kapat
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= ADMIN GİRİŞ MODALI ================= -->
+    <div id="modalAdminGiris" class="js-gizli fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="glass-modal rounded-2xl p-6 w-full max-w-sm">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg"><i class="fa-solid fa-user-shield mr-2 text-brand dark:text-blue-400"></i>Admin Girişi</h3>
+                <button onclick="modalKapat('modalAdminGiris')" class="text-slate-400 hover:text-rose-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <input id="txtKullaniciAdi" type="text" placeholder="Kullanıcı adı" class="w-full mb-3 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+            <input id="txtSifre" type="password" placeholder="Şifre" class="w-full mb-4 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+            <button onclick="adminGirisYap()" class="w-full py-2 rounded-lg bg-brand hover:bg-brand-hover text-white font-medium text-sm">Giriş Yap</button>
+        </div>
+    </div>
+
+    <!-- ================= ŞİRKET GEÇMİŞİ MODALI ================= -->
+    <div id="modalSirketGecmisi" class="js-gizli fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="glass-modal rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg"><i class="fa-solid fa-clock-rotate-left mr-2 text-brand dark:text-blue-400"></i><span id="gecmisBaslik">Şirket Geçmişi</span></h3>
+                <button onclick="modalKapat('modalSirketGecmisi')" class="text-slate-400 hover:text-rose-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="gecmisListesi" class="overflow-y-auto space-y-2 flex-1"></div>
+        </div>
+    </div>
+
+    <!-- ================= GRAFİK MODALI (genel duygu durumu dağılımı) ================= -->
+    <div id="modalGrafik" class="js-gizli fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="glass-modal rounded-2xl p-6 w-full max-w-xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg"><i class="fa-solid fa-chart-pie mr-2 text-brand dark:text-blue-400"></i>Duygu Durumu Dağılımı</h3>
+                <button onclick="modalKapat('modalGrafik')" class="text-slate-400 hover:text-rose-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <canvas id="grafikCanvas" height="220"></canvas>
+        </div>
+    </div>
+
+    <!-- ================= HİSSE FİYAT GRAFİĞİ MODALI (Yahoo Finance) =================
+    Bir habere/hisseye tıklanınca açılır; eski projedeki "KAP haberine tıklayınca
+    gelen Yahoo Finance hisse grafiği" özelliğinin karşılığı. -->
+    <div id="modalHisseGrafik" class="js-gizli fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div class="glass-modal rounded-2xl p-6 w-full max-w-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-lg">
+                    <i class="fa-solid fa-chart-line mr-2 text-brand dark:text-blue-400"></i>
+                    <span id="hisseGrafikBaslik">Hisse Fiyat Grafiği</span>
+                </h3>
+                <button onclick="modalKapat('modalHisseGrafik')" class="text-slate-400 hover:text-rose-500"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Zaman aralığı seçimi -->
+            <div class="flex items-center gap-2 mb-3">
+                <button onclick="hisseGrafikDonemDegistir(7)" data-gun="7" class="hisse-grafik-donem-btn px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium transition">7 Gün</button>
+                <button onclick="hisseGrafikDonemDegistir(30)" data-gun="30" class="hisse-grafik-donem-btn px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium transition">1 Ay</button>
+                <button onclick="hisseGrafikDonemDegistir(90)" data-gun="90" class="hisse-grafik-donem-btn px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium transition">3 Ay</button>
+                <button onclick="hisseGrafikDonemDegistir(365)" data-gun="365" class="hisse-grafik-donem-btn px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium transition">1 Yıl</button>
+            </div>
+
+            <div id="hisseGrafikYukleniyor" class="js-gizli flex items-center justify-center py-16 text-slate-400">
+                <i class="fa-solid fa-circle-notch animate-spin-slow text-xl mr-2"></i>Grafik yükleniyor...
+            </div>
+            <div id="hisseGrafikHata" class="js-gizli text-center py-16 text-rose-400 text-sm">
+                <i class="fa-solid fa-triangle-exclamation text-xl mb-2 block"></i>
+                Bu hisse için fiyat verisi alınamadı.
+            </div>
+            <canvas id="hisseGrafikCanvas" height="240"></canvas>
+        </div>
+    </div>
+
+    <!-- ================= BİLDİRİM (TOAST) ================= -->
+    <div id="popupBildirim" class="js-gizli fixed bottom-6 right-6 z-[60] px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
