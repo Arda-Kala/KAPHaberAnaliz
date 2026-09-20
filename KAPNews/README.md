@@ -12,9 +12,12 @@
 
 ---
 
-## 🖥️ Ekran Görüntüsü
+## 🖥️ Ekran Görüntüleri
 
-> Ana panel — filtreler, hisse bazlı arama, AI destekli kart görünümü
+<img width="1348" height="625" alt="adminpaneli" src="https://github.com/user-attachments/assets/67a49223-6254-4eb3-ace8-14278b6cbd19" />
+<img width="1350" height="632" alt="İlgili göstergeler" src="https://github.com/user-attachments/assets/86deab54-1e8c-44ef-b7c0-75fb135423d3" />
+<img width="1346" height="628" alt="anasayfa" src="https://github.com/user-attachments/assets/bb2b622e-d7d2-408d-b908-d960a6073f17" />
+ 
 
 ---
 
